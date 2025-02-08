@@ -1,0 +1,542 @@
+
+
+install.packages("remotes")
+remotes::install_github("cran/RMediation",force = TRUE)
+
+
+library(RMediation)
+
+library(tidyr)
+library(readr)
+library(dplyr)
+library(kableExtra)
+
+library(ggplot2)
+library(cowplot)
+library(TwoSampleMR)
+
+
+library(vroom)
+a<-vroom('GCST90042709_buildGRCh37.tsv.gz',col_names = TRUE)
+##②提取需要的列+命名为标准名称----------
+##标准化列名："SNP"，"beta"，"se"，"eaf"，"effect_allele"，"other_allele"，"pval"，"samplesize"
+colnames(a)##查看列名
+a1 = a[,c(2,11,12,4,5,13,6,7)]
+colnames(a1) = c("SNP","beta","se","effect_allele","other_allele","pval","samplesize","eaf")
+#save(a,file="a.rda")
+write.csv(a,"a.csv")
+
+b<-subset(a1,pval<5e-06) 
+
+b1<-format_data(b,type = "exposure")
+##⑤去除LD----------
+exp<-clump_data(b1,clump_kb = 10000,clump_r2 = 0.001)
+
+
+
+
+out<-extract_outcome_data(snps = exp$SNP,outcomes = 'ieu-b-102',proxies=TRUE)
+write.csv(out,'out.csv')
+save(out,file="out.rda")
+
+snps<-intersect(exp$SNP,out$SNP)
+b<-as.data.frame(cbind(snps,1))
+
+exp1<-subset(exp,SNP %in% b$snps)
+out1<-subset(out,SNP %in% b$snps)
+
+dat1<-harmonise_data(exposure_dat = exp1,outcome_dat = out1,action = 2)
+dat1<-dat1[dat1$mr_keep,]
+
+library(RadialMR)
+data_all1=format_radial(BXG=dat1$beta.exposure, 
+                        BYG=dat1$beta.outcome, 
+                        seBXG=dat1$se.exposure, 
+                        seBYG=dat1$se.outcome,
+                        RSID=dat1$SNP)
+result1=ivw_radial(data_all1, alpha=0.05, weights=3) ###对Q统计量进行校正
+result1$outliers
+
+x1 <- result1$data
+dat2 <- x1[!x1$Outliers=='Outlier',]
+finaldat1<-merge(dat2,dat1,by.x="SNP",by.y = "SNP")
+
+
+res <-mr(finaldat1)
+res_OR <-generate_odds_ratios(res) 
+print(res_OR,digit=12)
+write.csv(res_OR,'res_OR.csv')
+
+heterogeneity <- mr_heterogeneity(finaldat1)  
+heterogeneity
+write.csv(heterogeneity,'heterogeneity.csv')
+pleio <- mr_pleiotropy_test(finaldat1)
+pleio
+write.csv(pleio,'pleio.csv')
+mr_presso(BetaOutcome = 'beta.outcome',
+          BetaExposure = 'beta.exposure', 
+          SdOutcome = 'se.outcome', 
+          SdExposure = 'se.exposure', 
+          data = finaldat1, OUTLIERtest = TRUE, 
+          DISTORTIONtest = TRUE, SignifThreshold = 0.05, NbDistribution = 1000)
+
+
+
+
+
+exposure_total_beta <- res %>%filter(method == "Inverse variance weighted") %>%pull(b)
+exposure_total_se <- res %>%filter(method == "Inverse variance weighted")%>% pull(se)
+exposure_total_pval <- res %>%filter(method == "Inverse variance weighted")%>% pull(pval)
+
+
+
+
+
+
+library(tidyr)
+library(vroom)
+
+GCST90044423<- vroom('GCST90044423_buildGRCh37.tsv.gz',col_names = TRUE)
+colnames(GCST90044423)
+GCST90044423 = GCST90044423[,c(1,4,5,6,7,8,9)]
+colnames(GCST90044423) = c("SNP","effect_allele","other_allele","beta","se","pval","samplesize")
+GCST90044423$pval <- as.numeric(GCST90044423$pval)
+GCST90044423$beta <- as.numeric(GCST90044423$beta)
+GCST90044423$se <- as.numeric(GCST90044423$se)
+save(GCST90044423,file="GCST90044423.rda")
+
+
+
+GCST90085827<- vroom('GCST90085827_buildGRCh38.tsv.gz',col_names = TRUE)
+colnames(GCST90085827)
+GCST90085827 = GCST90085827[,c(1,5,6,8,9,2,7,11)]
+colnames(GCST90085827) = c("SNP","effect_allele","other_allele","beta","se","pval","eaf","samplesize")
+GCST90085827$pval <- as.numeric(GCST90085827$pval)
+GCST90085827$beta <- as.numeric(GCST90085827$beta)
+GCST90085827$se <- as.numeric(GCST90085827$se)
+save(GCST90085827,file="GCST90085827.rda")
+
+
+
+
+
+
+load("GCST90044423.rda")
+
+load("GCST90085827.rda")
+
+
+library(TwoSampleMR)
+library(ieugwasr)
+
+X1<-subset(GCST90044423,pval<5e-6)
+X1<-format_data(X1,type = "exposure")
+
+X111<-clump_data(X1,clump_kb = 10000,
+                 clump_r2 = 0.001)
+
+save(X111,file="X111.rda")
+
+
+
+X2<-subset(GCST90085827,pval<5e-6)
+X2<-format_data(X2,type = "exposure")
+X222<-clump_data(X2,clump_kb = 10000,
+                 clump_r2 = 0.001)
+
+
+save(X222,file="X222.rda")
+
+
+
+
+
+
+library(dplyr)
+library(plyr)
+SNP_list <- rbind.fill(X111, X222)
+SNP_list <- select(SNP_list,-id.exposure)
+#去LD
+SNP_list_c<-clump_data(SNP_list,clump_kb = 10000,clump_r2 = 0.001)
+
+
+save(SNP_list_c,file="SNP_list_c.rda")
+
+
+SNP_u<-unique(SNP_list_c$SNP)
+
+
+
+GCST90044423_X1<-GCST90044423[GCST90044423$SNP%in%SNP_u,]
+
+GCST90085827_X2<-GCST90085827[GCST90085827$SNP%in%SNP_u,]
+
+
+
+snps<-intersect(GCST90044423_X1$SNP,GCST90085827_X2$SNP)
+
+
+
+d1<-format_data(
+  GCST90044423,
+  type = "exposure",
+  snps = snps)
+
+d1$exposure<-"GCST90044423"
+d1$id.exposure<-"GCST90044423"
+
+
+d2<-format_data(
+  GCST90085827,
+  type = "exposure",
+  snps = snps)
+
+d2$exposure<-"GCST90085827"
+d2$id.exposure<-"GCST90085827"
+
+
+
+exposure_dat <- rbind(d1, d2)
+
+
+
+id_outcome <- "ieu-b-102" 
+outcome_dat <- extract_outcome_data(exposure_dat$SNP, id_outcome) 
+save(outcome_dat,file="out.rda")
+
+
+mvmr_dat<- mv_harmonise_data(exposure_dat, outcome_dat, harmonise_strictness=2)
+mvmr_res<-mv_multiple(mvmr_dat)
+
+
+mvmr_res<-mv_multiple(mvmr_dat) 
+
+
+
+
+direct_beta<-mvmr_res[["result"]][["b"]][2] 
+
+direct_se<-mvmr_res[["result"]][["se"]][2] 
+
+direct_pval<-mvmr_res[["result"]][["pval"]][2] 
+
+difference_method_PoE <- function(total_beta, total_se, direct_beta, direct_se, verbose = F){
+ 
+  
+  indirect_beta = total_beta -  direct_beta
+  
+  
+  if (verbose) {print(paste("Indirect effect = ", 
+                            round(total_beta, 8)," - ", round(direct_beta, 8), 
+                            " = ", round(indirect_beta,8)))}
+  
+  
+ 
+  indirect_se = round(sqrt(total_se^2 + direct_se^2), 8)
+  if (verbose) {print(paste("SE of indirect effect = sqrt(",
+                            round(total_se, 2),"^2 + ", round(direct_se,2), 
+                            "^2) = ", indirect_se))}
+  
+  
+  
+  df <-data.frame(b= indirect_beta,
+                  se = indirect_se)
+  
+
+  df$lo_ci    <- df$b - 1.96 * df$se
+  df$up_ci    <- df$b + 1.96 * df$se
+  df$or        <-  exp(df$b)
+  df$or_lci95 <- exp(df$lo_ci)
+  df$or_uci95 <- exp(df$up_ci)
+  
+  df<-round(df,8)
+  return(df)
+}
+
+indirect_effect<-difference_method_PoE(exposure_total_beta,exposure_total_se,direct_beta,direct_se) #将数据带入计算 
+indirect_effect  
+
+
+
+
+
+
+#中介效应比
+indirect_effect[,1]/exposure_total_beta
+
+
+
+
+
+
+
+
+
+library(vroom)
+a<-vroom('GCST90267302_buildGRCh37.tsv.gz',col_names = TRUE)
+
+colnames(a)
+a1 = a[,c(1,4,5,9,6,7,8)]
+colnames(a1)
+colnames(a1) = c("SNP","effect_allele","other_allele","samplesize","beta","se","pval")
+a1$pval <- as.numeric(a1$pval)
+a1$beta <- as.numeric(a1$beta)
+a1$se <- as.numeric(a1$se)
+save(a1,file="aptt.rda")
+write.csv(a1,"a.csv")
+
+b<-subset(a1,pval<5e-06) 
+
+b1<-format_data(b,type = "exposure")
+
+exposure<-clump_data(b1,clump_kb = 10000,clump_r2 = 0.001)
+
+library(plinkbinr)
+library(ieugwasr)
+
+
+
+c<-vroom('GCST90085868_buildGRCh38.tsv.gz',col_names = TRUE)
+
+colnames(c)
+outcome = c[,c(6,5,1,2,8,9,7,11)]
+colnames(outcome)
+colnames(outcome) = c("other_allele","effect_allele","SNP","pval","beta","se","eaf","samplesize")
+
+snps<-intersect(exposure$SNP,outcome$SNP)
+
+exp<-format_data(
+  b,
+  type = "exposure",
+  snps = snps)
+write.csv(exp, file="exp.csv")
+out<-format_data(
+  outcome,
+  type = "outcome",
+  snps = snps)
+write.csv(out, file="out.csv")
+
+dat_M<-harmonise_data(exp,out,action = 2) 
+dat_M<-dat_M[dat_M$mr_keep,]
+
+
+library(RadialMR)
+data_all2=format_radial(BXG=dat_M$beta.exposure, 
+                        BYG=dat_M$beta.outcome, 
+                        seBXG=dat_M$se.exposure, 
+                        seBYG=dat_M$se.outcome,
+                        RSID=dat_M$SNP)
+result2=ivw_radial(data_all2, alpha=0.05, weights=3) ###对Q统计量进行校正
+result2$outliers
+
+x2 <- result2$data
+dat3 <- x2[!x2$Outliers=='Outlier',]
+finaldat2<-merge(dat3,dat_M,by.x="SNP",by.y = "SNP")
+
+
+res_M <-mr(finaldat2)
+res_M_OR <-generate_odds_ratios(res_M) 
+print(res_M_OR,digit=12)
+
+write.csv(res_M_OR,'res_M_OR.csv')
+
+heterogeneity <- mr_heterogeneity(finaldat2)  
+heterogeneity
+write.csv(heterogeneity,'heterogeneity.csv')
+pleio <- mr_pleiotropy_test(finaldat2)
+pleio
+write.csv(pleio,'pleio.csv')
+mr_presso(BetaOutcome = 'beta.outcome',
+          BetaExposure = 'beta.exposure', 
+          SdOutcome = 'se.outcome', 
+          SdExposure = 'se.exposure', 
+          data = finaldat2, OUTLIERtest = TRUE, 
+          DISTORTIONtest = TRUE, SignifThreshold = 0.05, NbDistribution = 1000)
+
+
+
+
+
+
+
+EM_beta<- res_M %>%filter(method == "Inverse variance weighted") %>%pull(b)
+
+EM_se<- res_M %>%filter(method == "Inverse variance weighted") %>%pull(se)
+
+EM_pval<- res_M %>%filter(method == "Inverse variance weighted") %>%pull(pval)
+
+
+
+
+
+library(vroom)
+a<-vroom('GCST90085868_buildGRCh38.tsv.gz',col_names = TRUE)
+
+colnames(a)
+a1 = a[,c(1,8,9,7,5,6,2,11)]
+colnames(a1) = c("SNP","beta","se","eaf","effect_allele","other_allele",
+                 "pval","samplesize")
+#save(a,file="a.rda")
+write.csv(a,"a.csv")
+
+b<-subset(a1,pval<5e-06) 
+
+b1<-format_data(b,type = "exposure")
+
+exp<-clump_data(b1,clump_kb = 10000,clump_r2 = 0.001)
+
+
+
+
+out<-extract_outcome_data(snps = exp$SNP,outcomes = 'ieu-b-102',proxies=TRUE)
+write.csv(out,'out.csv')
+save(out,file="out.rda")
+
+snps<-intersect(exp$SNP,out$SNP)
+b<-as.data.frame(cbind(snps,1))
+
+exp1<-subset(exp,SNP %in% b$snps)
+out1<-subset(out,SNP %in% b$snps)
+
+dat_M0<-harmonise_data(exposure_dat = exp1,outcome_dat = out1,action = 2)
+dat_M0<-dat_M0[dat_M0$mr_keep,]
+
+library(RadialMR)
+data_all3=format_radial(BXG=dat_M0$beta.exposure, 
+                        BYG=dat_M0$beta.outcome, 
+                        seBXG=dat_M0$se.exposure, 
+                        seBYG=dat_M0$se.outcome,
+                        RSID=dat_M0$SNP)
+result3=ivw_radial(data_all3, alpha=0.05, weights=3) 
+result3$outliers
+
+x3 <- result3$data
+dat4 <- x3[!x3$Outliers=='Outlier',]
+finaldat3<-merge(dat4,dat_M0,by.x="SNP",by.y = "SNP")
+
+
+res_M0 <-mr(finaldat3)
+res_M0_OR <-generate_odds_ratios(res_M0) 
+print(res_M0_OR,digit=12)
+
+write.csv(res_M0_OR,'res_M0_OR.csv')
+
+
+
+
+MO_beta_total<- res_M0 %>%filter(method == "Inverse variance weighted") %>%pull(b)
+
+MO_se_total<- res_M0 %>%filter(method == "Inverse variance weighted") %>%pull(se)
+
+MO_pval_total<- res_M0 %>%filter(method == "Inverse variance weighted") %>%pull(pval)
+
+
+
+
+
+MO_beta<-mvmr_res[["result"]][["b"]][1]
+
+MO_se<-mvmr_res[["result"]][["se"]][1]
+
+MO_pval<-mvmr_res[["result"]][["pval"]][1]
+
+
+
+
+#  1) Delta
+product_method_Delta <- function(EM_beta, EM_se, MO_beta, MO_se, verbose=F){
+  
+  
+
+  
+  
+
+  EO <- EM_beta * MO_beta
+  
+  if (verbose) {print(paste("Indirect effect = ", round(EM_beta, 8)," x ", round(MO_beta,8), " = ", round(EO, 8)))}
+  
+  
+
+  CIs = medci(EM_beta, MO_beta, EM_se, MO_se, type="dop")
+  
+
+  df <-data.frame(b = EO,
+                  se = CIs$SE,
+                  lo_ci = CIs[["95% CI"]][1],
+                  up_ci= CIs[["95% CI"]][2])
+
+  df$or        <-  exp(df$b)
+  df$or_lci95 <- exp(df$lo_ci)
+  df$or_uci95 <- exp(df$up_ci)
+  
+  df<-round(df,6)
+  return(df)
+}
+
+
+product_method_Delta(EM_beta, EM_se, MO_beta_total, MO_se_total)
+
+P=2*pnorm(q=1.96, lower.tail=FALSE) #Z=1.96  P=0.05
+P
+
+beta_indirect=EM_beta*MO_beta_total/exposure_total_beta
+beta_indirect
+
+
+
+
+
+
+product_method_Delta(EM_beta, EM_se, MO_beta, MO_se)
+
+P=2*pnorm(q=1.96, lower.tail=FALSE) #Z=1.96  P=0.05
+P
+
+beta_indirect=EM_beta*MO_beta/exposure_total_beta
+beta_indirect
+
+
+
+
+
+
+
+
+
+product_method_PoE <- function(EM_beta, EM_se, MO_beta, MO_se, verbose=F){
+  
+
+  EO_beta <- EM_beta * MO_beta
+  
+  if (verbose) {print(paste("Indirect effect = ", round(EM_beta, 2)," x ", round(MO_beta,2), " = ", round(EO, 3)))}
+  
+  
+
+  EO_se = round(sqrt(EM_se^2 + MO_se^2), 4)
+  if (verbose) {print(paste("SE of indirect effect = sqrt(",
+                            round(EM_se, 2),"^2 + ", round(MO_se,2), 
+                            "^2) = ", indirect_se))}
+  
+  
+  # put data into a tidy df
+  df <-data.frame(b= EO_beta,
+                  se = EO_se)
+  
+  # calculate CIs and OR
+  df$lo_ci    <- df$b - 1.96 * df$se
+  df$up_ci    <- df$b + 1.96 * df$se
+  df$or        <-  exp(df$b)
+  df$or_lci95 <- exp(df$lo_ci)
+  df$or_uci95 <- exp(df$up_ci)
+  
+  df<-round(df,3)
+  return(df)
+}
+
+
+product_method_PoE(EM_beta, EM_se, MO_beta_total, MO_se_total)
+
+
+
+
+product_method_PoE(EM_beta, EM_se, MO_beta, MO_se)

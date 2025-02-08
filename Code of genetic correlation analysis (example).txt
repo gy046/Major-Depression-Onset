@@ -1,0 +1,33 @@
+
+library(RadialMR)
+data_all=format_radial(BXG=dat$beta.exposure, 
+                       BYG=dat$beta.outcome, 
+                       seBXG=dat$se.exposure, 
+                       seBYG=dat$se.outcome,
+                       RSID=dat$SNP)
+result=ivw_radial(data_all, alpha=0.05, weights=3) 
+result$outliers
+
+x <- result$data
+dat2 <- x[!x$Outliers=='Outlier',]
+finaldat<-merge(dat2,dat,by.x="SNP",by.y = "SNP")
+write.csv(finaldat,'datF.csv')
+
+
+results<-mr(finaldat)
+OR <-generate_odds_ratios(results)
+write.csv(results,'results.csv')
+OR
+write.csv(OR,'OR.csv')
+heterogeneity <- mr_heterogeneity(finaldat) 
+heterogeneity
+write.csv(heterogeneity,'heterogeneity.csv')
+pleio <- mr_pleiotropy_test(finaldat)
+pleio
+write.csv(pleio,'pleio.csv')
+mr_presso(BetaOutcome = 'beta.outcome',
+          BetaExposure = 'beta.exposure', 
+          SdOutcome = 'se.outcome', 
+          SdExposure = 'se.exposure', 
+          data = finaldat, OUTLIERtest = TRUE, 
+          DISTORTIONtest = TRUE, SignifThreshold = 0.05, NbDistribution = 1000)
