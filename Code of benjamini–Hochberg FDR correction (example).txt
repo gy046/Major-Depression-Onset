@@ -1,0 +1,28 @@
+# The Benjamini-Hochberg method
+
+res<-read.csv("res.csv")
+
+res_IVW<-res[res$method=="Inverse variance weighted",] 
+
+res_p<-res_IVW[,c("X","pval")]
+
+res_p<-res_p[order(res_p$pval),]
+
+res_p$adjustP<-NA
+
+for (n in 1:nrow(res_p)) {
+ 
+  if(n==nrow(res_p)){
+    res_p[n,]$adjustP<-res_p[n,]$pval
+    
+  }else{  
+    res_p[n,]$adjustP<-((res_p[n,]$pval)*(nrow(res_p)/n))
+  }
+  
+  if(res_p[n,]$adjustP>=1)res_p[n,]$adjustP<-1
+}
+
+res<-merge(x=res,y=res_p[,c("X","adjustP")],by = "X",all = T)
+
+
+write.csv(res,'res.csv')
