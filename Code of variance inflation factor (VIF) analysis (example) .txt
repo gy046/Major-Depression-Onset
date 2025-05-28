@@ -1,0 +1,60 @@
+if(!require("car")) install.packages("car", update = F, ask = F)
+library(data.table)
+library(car)
+
+gwas1 <- fread("GCST90085827_buildGRCh38.tsv.gz", 
+               select = c("variant_id", "beta", "standard_error"))
+gwas2 <- fread("GCST90085859_buildGRCh38.tsv.gz",
+               select = c("variant_id", "beta", "standard_error")) 
+gwas3 <- fread("GCST90085868_buildGRCh38.tsv.gz",
+               select = c("variant_id", "beta", "standard_error"))
+
+setnames(gwas1, c("variant_id", "beta_exp1", "se_exp1"))
+setnames(gwas2, c("variant_id", "beta_exp2", "se_exp2"))
+setnames(gwas3, c("variant_id", "beta_exp3", "se_exp3"))
+
+merged_data <- merge(merge(gwas1, gwas2, by = "variant_id"), 
+                     gwas3, by = "variant_id")
+
+merged_data[, `:=`(beta_exp1 = scale(beta_exp1),
+                   beta_exp2 = scale(beta_exp2),
+                   beta_exp3 = scale(beta_exp3))]
+
+calculate_exposure_vif <- function(main_exposure, control_exposures) {
+  formula_str <- paste(main_exposure, "~", 
+                       paste(control_exposures, collapse = " + "))
+  model <- lm(as.formula(formula_str), data = merged_data)
+  
+  list(
+    Formula = formula_str,
+    VIF = vif(model),
+    Condition_Number = kappa(model.matrix(model))
+  )
+}
+
+vif_exp1 <- calculate_exposure_vif("beta_exp1", c("beta_exp2", "beta_exp3"))
+vif_exp2 <- calculate_exposure_vif("beta_exp2", c("beta_exp1", "beta_exp3"))
+vif_exp3 <- calculate_exposure_vif("beta_exp3", c("beta_exp1", "beta_exp2"))
+
+print_results <- function(res, exposure_name) {
+  cat("\n", strrep("=", 40), "\n")
+  cat("Exposure:", exposure_name, "\n")
+  cat("Regression Formula:", res$Formula, "\n")
+  cat("Variance Inflation Factors:\n")
+  print(res$VIF)
+  cat("Condition Number:", round(res$Condition_Number, 2), "\n")
+  cat(strrep("=", 40), "\n\n")
+}
+
+print_results(vif_exp1, "Exposure 1")
+print_results(vif_exp2, "Exposure 2")
+print_results(vif_exp3, "Exposure 3")
+
+exposure_pairs <- list(
+  list(main = "beta_exp1", controls = c("beta_exp2", "beta_exp3")),
+  list(main = "beta_exp2", controls = c("beta_exp1", "beta_exp3")),
+  list(main = "beta_exp3", controls = c("beta_exp1", "beta_exp2"))
+)
+
+results <- lapply(exposure_pairs, function(x) 
+  calculate_exposure_vif(x$main, x$controls))
